@@ -1,29 +1,9 @@
 #pragma once
 
 #include <cv.h>
-//#include <windows.h>
-//
-//struct circle_found
-//{
-//	float score;	//匹配分数
-//	cv::Vec3f circle;	//找到的圆
-//};
-//
-//namespace ExtendCV
-//{
-//	//_image——输入的图像，必须为8位单通道，_circles——找到的圆，dp——cv::houghcircles中的dp，min_dist——cv::houghcircles中的minDist两圆最小距离
-//	//low_threshold——将_image预处理提取轮廓的canny低阈值，high_threshold——将_image预处理提取轮廓的canny高阈值
-//	//acc_threshold——cv::houghcircles中的param2累加器值，minRadius——圆的最小半径，maxRadius——圆的最大半径
-//	//minScore——找出的圆与现有的轮廓的重合率，作为分数
-//	//_contour_image——可选的输入轮廓图，如果这里非空，则将low_threshold与high_threshold忽略（方便轮廓图的进一步预处理）
-//	void FindCircles( cv::InputArray _image, cv::vector<circle_found>& _circles,float dp, int min_dist,
-//	int low_threshold, int high_threshold,int acc_threshold,int minRadius, int maxRadius,
-//	float minScore, cv::InputArray _contour_image=cv::Mat() );
-//
-//}
 
 #define HOUGH_CIRCLE_RADIUS_MIN_DIST				3
-#define HOUGH_CIRCLE_INTEGRITY_DEGREE				0.6
+#define HOUGH_CIRCLE_INTEGRITY_DEGREE				0.8
 #define HOUGH_CIRCLE_ACCUM_NORMALIZE_MAX			256
 #define HOUGH_CIRCLE_RADIUS_MIN						10
 #define HOUGH_CIRCLE_SAMEDIRECT_DEGREE				0.99
@@ -37,7 +17,186 @@
 #define HOUGH_MATH_SEGFUN_R2				0.5
 #define HOUGH_MATH_SEGFUN_S2				0.8
 
+#ifndef CV_SWAP
+#define CV_SWAP(a,b,t) ((t) = (a), (a) = (b), (b) = (t))
+#endif
+
+#ifndef MIN
+#  define MIN(a,b)  ((a) > (b) ? (b) : (a))
+#endif
+
+#define CV_IMPLEMENT_QSORT_EX( func_name, T, LT, user_data_type )                   \
+void func_name( T *array, size_t total, user_data_type aux )                        \
+{                                                                                   \
+    int isort_thresh = 7;                                                           \
+    T t;                                                                            \
+    int sp = 0;                                                                     \
+                                                                                    \
+    struct                                                                          \
+    {                                                                               \
+        T *lb;                                                                      \
+        T *ub;                                                                      \
+    }                                                                               \
+    stack[48];                                                                      \
+                                                                                    \
+    (void)aux;                                                                      \
+                                                                                    \
+    if( total <= 1 )                                                                \
+        return;                                                                     \
+                                                                                    \
+    stack[0].lb = array;                                                            \
+    stack[0].ub = array + (total - 1);                                              \
+                                                                                    \
+    while( sp >= 0 )                                                                \
+    {                                                                               \
+        T* left = stack[sp].lb;                                                     \
+        T* right = stack[sp--].ub;                                                  \
+                                                                                    \
+        for(;;)                                                                     \
+        {                                                                           \
+            int i, n = (int)(right - left) + 1, m;                                  \
+            T* ptr;                                                                 \
+            T* ptr2;                                                                \
+                                                                                    \
+            if( n <= isort_thresh )                                                 \
+            {                                                                       \
+            insert_sort:                                                            \
+                for( ptr = left + 1; ptr <= right; ptr++ )                          \
+                {                                                                   \
+                    for( ptr2 = ptr; ptr2 > left && LT(ptr2[0],ptr2[-1]); ptr2--)   \
+                        CV_SWAP( ptr2[0], ptr2[-1], t );                            \
+                }                                                                   \
+                break;                                                              \
+            }                                                                       \
+            else                                                                    \
+            {                                                                       \
+                T* left0;                                                           \
+                T* left1;                                                           \
+                T* right0;                                                          \
+                T* right1;                                                          \
+                T* pivot;                                                           \
+                T* a;                                                               \
+                T* b;                                                               \
+                T* c;                                                               \
+                int swap_cnt = 0;                                                   \
+                                                                                    \
+                left0 = left;                                                       \
+                right0 = right;                                                     \
+                pivot = left + (n/2);                                               \
+                                                                                    \
+                if( n > 40 )                                                        \
+                {                                                                   \
+                    int d = n / 8;                                                  \
+                    a = left, b = left + d, c = left + 2*d;                         \
+                    left = LT(*a, *b) ? (LT(*b, *c) ? b : (LT(*a, *c) ? c : a))     \
+                                      : (LT(*c, *b) ? b : (LT(*a, *c) ? a : c));    \
+                                                                                    \
+                    a = pivot - d, b = pivot, c = pivot + d;                        \
+                    pivot = LT(*a, *b) ? (LT(*b, *c) ? b : (LT(*a, *c) ? c : a))    \
+                                      : (LT(*c, *b) ? b : (LT(*a, *c) ? a : c));    \
+                                                                                    \
+                    a = right - 2*d, b = right - d, c = right;                      \
+                    right = LT(*a, *b) ? (LT(*b, *c) ? b : (LT(*a, *c) ? c : a))    \
+                                      : (LT(*c, *b) ? b : (LT(*a, *c) ? a : c));    \
+                }                                                                   \
+                                                                                    \
+                a = left, b = pivot, c = right;                                     \
+                pivot = LT(*a, *b) ? (LT(*b, *c) ? b : (LT(*a, *c) ? c : a))        \
+                                   : (LT(*c, *b) ? b : (LT(*a, *c) ? a : c));       \
+                if( pivot != left0 )                                                \
+                {                                                                   \
+                    CV_SWAP( *pivot, *left0, t );                                   \
+                    pivot = left0;                                                  \
+                }                                                                   \
+                left = left1 = left0 + 1;                                           \
+                right = right1 = right0;                                            \
+                                                                                    \
+                for(;;)                                                             \
+                {                                                                   \
+                    while( left <= right && !LT(*pivot, *left) )                    \
+                    {                                                               \
+                        if( !LT(*left, *pivot) )                                    \
+                        {                                                           \
+                            if( left > left1 )                                      \
+                                CV_SWAP( *left1, *left, t );                        \
+                            swap_cnt = 1;                                           \
+                            left1++;                                                \
+                        }                                                           \
+                        left++;                                                     \
+                    }                                                               \
+                                                                                    \
+                    while( left <= right && !LT(*right, *pivot) )                   \
+                    {                                                               \
+                        if( !LT(*pivot, *right) )                                   \
+                        {                                                           \
+                            if( right < right1 )                                    \
+                                CV_SWAP( *right1, *right, t );                      \
+                            swap_cnt = 1;                                           \
+                            right1--;                                               \
+                        }                                                           \
+                        right--;                                                    \
+                    }                                                               \
+                                                                                    \
+                    if( left > right )                                              \
+                        break;                                                      \
+                    CV_SWAP( *left, *right, t );                                    \
+                    swap_cnt = 1;                                                   \
+                    left++;                                                         \
+                    right--;                                                        \
+                }                                                                   \
+                                                                                    \
+                if( swap_cnt == 0 )                                                 \
+                {                                                                   \
+                    left = left0, right = right0;                                   \
+                    goto insert_sort;                                               \
+                }                                                                   \
+                                                                                    \
+                n = MIN( (int)(left1 - left0), (int)(left - left1) );               \
+                for( i = 0; i < n; i++ )                                            \
+                    CV_SWAP( left0[i], left[i-n], t );                              \
+                                                                                    \
+                n = MIN( (int)(right0 - right1), (int)(right1 - right) );           \
+                for( i = 0; i < n; i++ )                                            \
+                    CV_SWAP( left[i], right0[i-n+1], t );                           \
+                n = (int)(left - left1);                                            \
+                m = (int)(right1 - right);                                          \
+                if( n > 1 )                                                         \
+                {                                                                   \
+                    if( m > 1 )                                                     \
+                    {                                                               \
+                        if( n > m )                                                 \
+                        {                                                           \
+                            stack[++sp].lb = left0;                                 \
+                            stack[sp].ub = left0 + n - 1;                           \
+                            left = right0 - m + 1, right = right0;                  \
+                        }                                                           \
+                        else                                                        \
+                        {                                                           \
+                            stack[++sp].lb = right0 - m + 1;                        \
+                            stack[sp].ub = right0;                                  \
+                            left = left0, right = left0 + n - 1;                    \
+                        }                                                           \
+                    }                                                               \
+                    else                                                            \
+                        left = left0, right = left0 + n - 1;                        \
+                }                                                                   \
+                else if( m > 1 )                                                    \
+                    left = right0 - m + 1, right = right0;                          \
+                else                                                                \
+                    break;                                                          \
+            }                                                                       \
+        }                                                                           \
+    }                                                                               \
+}
+
+#define hough_cmp_gt(l1,l2) (aux[l1] > aux[l2])
+
+static CV_IMPLEMENT_QSORT_EX(icvHoughSortDescent32s, int, hough_cmp_gt, const int*)
+
 void myHoughCircles(cv::InputArray _image, cv::OutputArray _circles,
 	int method, double dp, double min_dist,
 	double param1, double param2,
 	int minRadius, int maxRadius);
+
+void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min_dist,
+	int param1, int param2, int minRadius, int maxRadius);

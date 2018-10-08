@@ -13,7 +13,7 @@ int main(int argc, char** argv)
 	Mat src, src_gray;
 
 	/// Read the image
-	src = imread("D:\\QQPCmgr\\Desktop\\12.jpg", 1);
+	src = imread("D:\\Project\\VsProject\\HoughCircle\\12.jpg", 1);
 
 	if (!src.data)
 	{
@@ -32,7 +32,8 @@ int main(int argc, char** argv)
 	std::vector<Vec3f> circles;
 
 	/// Apply the Hough Transform to find the circles
-	myHoughCircles(src_gray, circles, CV_HOUGH_GRADIENT, 1.0, 10, 80, 100, 0, 0);
+	//myHoughCircles(src_gray, circles, CV_HOUGH_GRADIENT, 1.0, 5, 80, 100, 0, 0);
+	houghcircles(src_gray, circles, 5, 80, 100, 0, 0);
 
 	/// Draw the circles detected
 	for (size_t i = 0; i < circles.size(); i++)
