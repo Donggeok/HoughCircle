@@ -252,7 +252,7 @@ myicvHoughCirclesGradient(CvMat* img, float dp, float min_dist,
 		//Calculate circle's center in pixels
 		//计算圆心在输入图像中的坐标位置
 		float cx = (float)((x + 0.5f)*dp), cy = (float)((y + 0.5f)*dp);
-		float start_dist, dist_sum;
+		float start_dist;
 		float r_best = 0;
 		int max_count = 0;
 		// Check distance with previously detected circles
@@ -310,7 +310,7 @@ myicvHoughCirclesGradient(CvMat* img, float dp, float min_dist,
 										   //步骤2.3，对圆半径进行排序
 		icvHoughSortDescent32s(&sort_buf[0], nz_count1, (int*)ddata);
 
-		dist_sum = start_dist = ddata[sort_buf[nz_count1 - 1]];
+		start_dist = ddata[sort_buf[nz_count1 - 1]];
 		float cur_r_dist_sum = 0.0;
 		int cur_r_count = 0;
 		int cur_r_grad_count = 0;
@@ -771,15 +771,12 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 	//为了提高运算精度，定义一个数值的位移量
 	const int SHIFT = 10, ONE = 1 << SHIFT;
 	//定义水平梯度和垂直梯度矩阵的地址指针
-	cv::Mat dx, dy;
+	cv::Mat dx, dy, dxdy;
 	//定义边缘图像、累加器矩阵和半径距离矩阵的地址指针
-	cv::Mat edges, dist_buf;
-	// 创建圆周点梯度方向向量和指向圆心方向向量的内积（小于1）
-	cv::Mat inner_products_buf;
+	cv::Mat edges;
+
 	//定义排序向量
 	std::vector<int> sort_buf;
-
-	cv::Mat dxdy;
 
 	int x, y, i, j, k, center_count, nz_count;
 	//事先计算好最小半径和最大半径的平方
@@ -804,6 +801,7 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 	//步骤1.2，用Sobel算子法计算水平梯度和垂直梯度
 	cv::Sobel(src_gray, dx, CV_16SC1, 1, 0, 3);
 	cv::Sobel(src_gray, dy, CV_16SC1, 0, 1, 3);
+	dxdy = cv::Mat(src_gray.rows, src_gray.cols, CV_32SC2);
 	// 确保累加器矩阵的分辨率不小于1
 	if (dp < 1.f)
 		dp = 1.f;
@@ -835,7 +833,7 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 		const uchar* edges_row = edges.ptr<uchar>(y);
 		const short* dx_row = (const short*)dx.ptr<short>(y);
 		const short* dy_row = (const short*)dy.ptr<short>(y);
-		//int* dxdy_row = (int*)(dxdy.ptr<int>(0, 0) + y*dxdy.step);
+		cv::Vec2i* dxdy_row = (cv::Vec2i*)dxdy.ptr<cv::Vec2i>(y);
 
 		for (x = 0; x < cols; x++)
 		{
@@ -856,8 +854,8 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 			sy = cvRound((vy*idp)*ONE / mag);
 
 			// 梯度向量
-			//dxdy_row[2 * x + 0] = sx;
-			//dxdy_row[2 * x + 1] = sy;
+			dxdy_row[x][0] = sx;
+			dxdy_row[x][1] = sy;
 
 			//把当前点的坐标定位到累加器的位置上
 			x0 = cvRound((x*idp)*ONE);
@@ -907,8 +905,8 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 		for (x = 1; x < acols - 1; x++)
 		{
 			int base = y*astep + x;
-			adata[base] = ((float)adata[base] / accum_max) * HOUGH_CIRCLE_ACCUM_NORMALIZE_MAX;
-			//adata[base] = fun((float)adata[base] / accum_max) * HOUGH_CIRCLE_ACCUM_NORMALIZE_MAX;
+			//adata[base] = ((float)adata[base] / accum_max) * HOUGH_CIRCLE_ACCUM_NORMALIZE_MAX;
+			adata[base] = fun((float)adata[base] / accum_max) * HOUGH_CIRCLE_ACCUM_NORMALIZE_MAX;
 		}
 	}
 
@@ -917,11 +915,11 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 	{
 		for (int x = 1; x < acols - 1; x++)
 		{
-			int base = y*(acols + 2) + x;
+			int base = y*astep + x;
 			//如果当前的值大于阈值，并在4邻域内它是最大值，则该点被认为是圆心
 			if (adata[base] > acc_threshold &&
 				adata[base] > adata[base - 1] && adata[base] > adata[base + 1] &&
-				adata[base] > adata[base - acols - 2] && adata[base] > adata[base + acols + 2])
+				adata[base] > adata[base - astep] && adata[base] > adata[base + astep])
 				//把当前点的地址压入圆心序列centers中
 				centers.push_back(base);
 		}
@@ -948,8 +946,7 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 	//如果总数为0，说明没有检测到圆，则退出该函数
 	if (!center_count)
 		return;
-	//定义排序向量的大小
-	sort_buf.resize(MAX(center_count, nz_count));
+	
 	//把圆心序列放入排序向量中
 	
 	sort_buf.clear();
@@ -966,31 +963,34 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 	free(adata);
 	adata = NULL;
 
-	//创建半径距离矩阵
-	dist_buf = cv::Mat(1, nz_count, CV_32FC1);
-	//定义地址指针
-	ddata = dist_buf.ptr<float>(0);
+	// 创建半径距离矩阵
+	// 定义地址指针
+	ddata = (float *)malloc(nz_count * sizeof(float));
+	// 创建圆周点梯度方向向量和指向圆心方向向量的内积（小于1）
+	// 定义内积地址指针
+	idata = (float *)malloc(nz_count * sizeof(float));
 
-	inner_products_buf = cv::Mat(1, nz_count, CV_32FC1);
-	//定义地址指针
-	idata = inner_products_buf.ptr<float>(0);;
-
-
-	dr = dp;    //定义圆半径的距离分辨率
-				//重新定义圆心之间的最小距离
+	//定义圆半径的距离分辨率
+	dr = dp;
+				
+	//重新定义圆心之间的最小距离
 	min_dist = MAX(min_dist, dp);
 	//最小距离的平方
 	min_dist *= min_dist;
 	// For each found possible center
 	// Estimate radius and check support
+
+	//定义排序向量的大小
+	sort_buf.resize(nz_count);
+
 	//按照由大到小的顺序遍历整个圆心序列
 	for (i = 0; i < centers.size(); i++)
 	{
 		//提取出圆心，得到该点在累加器矩阵中的偏移量
 		int ofs = centers[i];
 		//得到圆心在累加器中的坐标位置
-		y = ofs / (acols + 2);
-		x = ofs - (y)*(acols + 2);
+		y = ofs / astep;
+		x = ofs - y*astep;
 		//Calculate circle's center in pixels
 		//计算圆心在输入图像中的坐标位置
 		float cx = (float)((x + 0.5f)*dp), cy = (float)((y + 0.5f)*dp);
@@ -1027,9 +1027,9 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 			float y_norm = _dy / pow(_r2, 0.5);
 
 			// 求得sx,dx（记得求完内积后右移SHIFT位）
-			const short* dxdy_row = (short*)(dxdy.ptr<short>(0, 0) + pt.y*dxdy.step);
-			short sx = dxdy_row[2 * pt.x + 0];
-			short sy = dxdy_row[2 * pt.x + 1];
+			cv::Vec2i dxdy_row = dxdy.at<cv::Vec2i>(pt.y, pt.x);
+			short sx = dxdy_row[0];
+			short sy = dxdy_row[1];
 
 			//步骤2.2，如果半径在所设置的最大半径和最小半径之间
 			if (minRadius2 <= _r2 && _r2 <= maxRadius2)
@@ -1046,15 +1046,20 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 		//nz_count1等于0也就是k等于0，说明当前的圆心没有所对应的圆，意味着当前圆心不是真正的圆心，所以抛弃该圆心，返回上面的for循环
 		if (nz_count1 == 0)
 			continue;
-		dist_buf.cols = nz_count1;    //得到圆周上点的个数
-		cvPow(&dist_buf, &dist_buf, 0.5);    //求平方根，得到真正的圆半径
-										   //步骤2.3，对圆半径进行排序
+
+		//求平方根，得到真正的圆半径
+		for (int t = 0; t < nz_count1; ++t) {
+			ddata[t] = pow(ddata[t], 0.5);
+		}
+		
+		//步骤2.3，对圆半径进行排序
 		icvHoughSortDescent32s(&sort_buf[0], nz_count1, (int*)ddata);
 
-		dist_sum = start_dist = ddata[sort_buf[nz_count1 - 1]];
+		start_dist = ddata[sort_buf[nz_count1 - 1]];
 		float cur_r_dist_sum = 0.0;
 		int cur_r_count = 0;
 		int cur_r_grad_count = 0;
+
 		//步骤2.4
 		for (j = nz_count1 - 2; j >= 0; j--)
 		{
@@ -1096,8 +1101,8 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 				// 计算平均半径
 				float r_mean = cur_r_dist_sum / cur_r_count;
 				// 判断该圆是否合格
-				if (cur_r_count >= HOUGH_CIRCLE_INTEGRITY_DEGREE * 2 * HOUGH_MATH_PI * r_mean //&&
-					//cur_r_grad_count >= HOUGH_CIRCLE_GRADIENT_INTEGRITY_DEGREE * cur_r_count
+				if (cur_r_count >= HOUGH_CIRCLE_INTEGRITY_DEGREE * 2 * HOUGH_MATH_PI * r_mean &&
+					cur_r_grad_count >= HOUGH_CIRCLE_GRADIENT_INTEGRITY_DEGREE * cur_r_count
 					) {
 					cv::Vec3f c;
 					c[0] = cx;    //圆心的横坐标
@@ -1114,6 +1119,24 @@ void houghcircles(cv::Mat &src_gray, std::vector<cv::Vec3f> &circles, double min
 				start_dist = d;
 			}
 		}
+		// 由于对圆的判断只在else中，所以一旦没有经过else时，就会忽略掉应该有的圆，对于这种情况，需要在循环结束时，再一次判断是否成圆
+		// 计算平均半径
+		float r_mean = cur_r_dist_sum / cur_r_count;
+		// 判断该圆是否合格
+		if (cur_r_count >= HOUGH_CIRCLE_INTEGRITY_DEGREE * 2 * HOUGH_MATH_PI * r_mean &&
+			cur_r_grad_count >= HOUGH_CIRCLE_GRADIENT_INTEGRITY_DEGREE * cur_r_count
+		) {
+			cv::Vec3f c;
+			c[0] = cx;    //圆心的横坐标
+			c[1] = cy;    //圆心的纵坐标
+			c[2] = (float)r_mean;    //所对应的圆的半径
+			circles.push_back(c);    //压入序列circles内
+		}
 	}
 
+	// 释放ddata和idata动态空间
+	free(ddata);
+	ddata = NULL;
+	free(idata);
+	idata = NULL;
 }
